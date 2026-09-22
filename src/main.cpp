@@ -3,7 +3,7 @@ import CppUtils;
 import Flow.Model.UserRequestLog;
 import Flow.UI.FlowTerminalUI;
 
-auto start([[maybe_unused]] std::span<const std::string_view> arguments) -> int
+auto start(std::span<const std::string_view> arguments) -> int
 {
 	auto isWatchMode = false;
 	auto currentLogLevel = Flow::UI::LogLevel::Info;

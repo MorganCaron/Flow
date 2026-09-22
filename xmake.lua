@@ -1,6 +1,6 @@
 set_project("Flow")
 set_version("1.0.0", {build = "%Y%m%d%H%M"})
-set_license("LGPL3")
+set_license("MIT")
 set_languages("c++26")
 set_warnings("allextra", "pedantic", "error")
 add_cxflags("clang::-Wno-error=#warnings", "clang::-Wconversion", "clang::-Wenum-conversion", "gcc::-Wenum-conversion", "clang::-Wfatal-errors", "clang::-Wno-deprecated-declarations -Wno-unknown-attributes")

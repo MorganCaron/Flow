@@ -6,7 +6,6 @@ The project becomes better for everyone when people like you help make it better
 
 Have any questions or concerns? Did I forget something? Feel free to submit an issue or pull request.
 
-
 Thanks for taking the time to contribute :)
 
 ---
@@ -45,6 +44,7 @@ Both commit messages and Pull Request titles must follow the [Conventional Commi
 Pull Request titles are automatically parsed by the CI to assign repository labels and categorize entries in the release changelog.
 
 Supported and common types:
+
 - `feat`: A new feature.
 - `fix`: A bug fix.
 - `docs`: Documentation updates only (e.g., README, code comments).
@@ -113,6 +113,7 @@ xmake require -f --debugdir=/path/to/CppUtils -y CppUtils
 # Or via xrepo:
 xrepo install -d /path/to/CppUtils CppUtils
 ```
+
 - **Pros**: Works without any project configuration options in `xmake.lua`.
 - **Cons**: Compiles and installs a static snapshot into `~/.xmake/packages/`. Edits in `CppUtils` are not automatically picked up by Flow until you re-run `xmake require -f --debugdir=...`, and it can overwrite the cached release version globally for other projects.
 - **Recommendation**: Use `--local_CppUtils` for day-to-day paired development because it is scoped to the project configuration and seamlessly accepts custom paths.
