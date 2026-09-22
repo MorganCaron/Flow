@@ -1,0 +1,56 @@
+name: "CI C++: MacOS"
+
+on:
+  workflow_call:
+  push:
+    branches:
+      - master
+    tags-ignore:
+      - "v*"
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: MacOS (${{ matrix.compiler.name }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+        - {
+          name: "Clang",
+          cc: "clang",
+          cxx: "clang++"
+        }
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: tecolicom/actions-use-homebrew-tools@v1
+      with:
+        tools: llvm ninja cmake
+
+    - uses: xmake-io/github-action-setup-xmake@v1
+      with:
+        xmake-version: branch@master
+
+    - name: Update xmake repository
+      run: xmake repo --update
+
+    - name: Configure & Install dependencies
+      run: |
+        xmake f --toolchain=llvm --sdk="$(brew --prefix)/opt/llvm/" --runtimes="c++_shared" --enable_tests=y -v --yes
+
+    - name: Build
+      run: |
+        xmake build -v
+
+    - name: Run tests
+      run: |
+        xmake run Flow-UnitTests
+
+    - name: Run sample pipeline batch
+      run: |
+        bash scripts/copy_samples.sh
+        xmake run Flow

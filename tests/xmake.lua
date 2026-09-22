@@ -1,0 +1,7 @@
+target("Flow-UnitTests", function()
+	set_kind("binary")
+	set_rundir("$(projectdir)")
+	add_deps("FlowCore")
+	add_files("**.cpp")
+	add_files("**.mpp")
+end)

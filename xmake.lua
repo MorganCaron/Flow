@@ -1,0 +1,83 @@
+set_project("Flow")
+set_version("1.0.0", {build = "%Y%m%d%H%M"})
+set_license("LGPL3")
+set_languages("c++26")
+set_warnings("allextra", "pedantic", "error")
+add_cxflags("clang::-Wno-error=#warnings", "clang::-Wconversion", "clang::-Wenum-conversion", "gcc::-Wenum-conversion", "clang::-Wfatal-errors", "clang::-Wno-deprecated-declarations -Wno-unknown-attributes")
+add_cxflags("clang::-fcolor-diagnostics", "clang::-fansi-escape-codes", "gcc::-fdiagnostics-color=always")
+set_optimize("fastest")
+
+add_cxxflags("clang::-fexperimental-library", {force = true}) -- Pour avoir std::jthread
+add_cxxflags("cl::/EHsc", {force = true}) -- Pour avoir std::jthread
+
+if is_plat("windows") and not is_plat("mingw") then
+	set_runtimes(is_mode("debug") and "MDd" or "MD")
+	add_defines("NOMINMAX", "VC_EXTRALEAN", "WIN32_LEAN_AND_MEAN", "_CRT_SECURE_NO_WARNINGS", { public = true })
+	add_cxflags("cl::/wd4251", "cl::/permissive-", {force = true}) -- ‘identifier’ : class ‘type’ needs to have dll-interface to be used by clients of class ‘type2’
+end
+
+add_rules(
+	"mode.debug",
+	"mode.release",
+	"mode.releasedbg",
+	"mode.minsizerel",
+	"mode.check",
+	"mode.profile",
+	"mode.coverage",
+	"mode.valgrind")
+
+option("compiler_verbose", {default = false, category = "Build Flow", description = "Verbose the compiler output"})
+option("enable_moduleonly", {default = true, category = "Build Flow", description = "Module only"})
+option("sanitize_memory", {default = false, category = "Build Flow/Sanitizer", description = "Enable ASan + LSan + UBSan"})
+option("sanitize_thread", {default = false, category = "Build Flow/Sanitizer", description = "Enable TSan"})
+option("enable_tests", {default = false, description = "Enable Unit Tests"})
+
+option("local_CppUtils", {default = false, description = "Use local CppUtils directory (or specify custom path) instead of xrepo"})
+
+local local_CppUtils = get_config("local_CppUtils")
+if local_CppUtils then
+	local sourcedir = (type(local_CppUtils) == "string" and local_CppUtils ~= "true" and local_CppUtils ~= "y")
+		and path.absolute(local_CppUtils)
+		or path.join(os.projectdir(), "../CppUtils")
+
+	includes(sourcedir)
+else
+	add_repositories("xmake-repo https://github.com/MorganCaron/xmake-repo.git")
+	add_requires("CppUtils 0.1.*")
+end
+
+target("FlowCore", function()
+	if get_config("enable_moduleonly") then
+		set_kind("moduleonly")
+	else
+	  set_kind("$(kind)")
+	end
+
+	if local_CppUtils then
+		add_deps("CppUtils", {public = true})
+	else
+		add_packages("CppUtils", {public = true})
+	end
+	add_files("modules/**.mpp", {public = true})
+end)
+
+target("Flow", function()
+	set_kind("binary")
+	set_rundir("$(projectdir)")
+	add_deps("FlowCore")
+	add_files("src/main.cpp")
+
+	if get_config("sanitize_memory") then
+		set_policy("build.sanitizer.address", true) -- ASAN
+		set_policy("build.sanitizer.leak", true) -- LSan
+		set_policy("build.sanitizer.undefined", true) -- UBSan
+	end
+
+	if get_config("sanitize_thread") then
+		set_policy("build.sanitizer.thread", true) -- TSan
+	end
+end)
+
+if has_config("enable_tests") then
+	includes("tests")
+end

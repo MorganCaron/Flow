@@ -1,0 +1,42 @@
+<Flow name="WebLogPipeline" mapping="web">
+
+	<Input directory="data/input/web"
+		format="csv"
+		separator=";"
+		staging="data/staging/web"
+		archive="data/archive/web"
+		quarantine="data/quarantine/web" />
+
+	<Rejected directory="data/rejected/web" separator=";" />
+
+	<Pipeline chunkSize="1000">
+
+		<Let name="SlaLatencyLimit" value="1000" type="int" />
+
+		<Validate column="StatusCode" operator=">=" value="100" error="HTTP status code must be >= 100" />
+		<Validate column="StatusCode" operator="<=" value="599" error="HTTP status code must be <= 599" />
+
+		<Filter column="Endpoint" operator="!=" value="/healthz" />
+
+		<Transform column="Method" function="toUppercase" />
+		<Transform column="UserId" function="decodeHex" />
+
+		<When>
+			<All>
+				<Condition column="ResponseTimeMs" operator=">=" variable="SlaLatencyLimit" />
+				<Condition column="StatusCode" operator="<" value="400" />
+			</All>
+			<Log type="warning" column="ResponseTimeMs" message="Slow successful Web request detected: {} ms" />
+		</When>
+
+		<When column="StatusCode" operator=">=" value="400">
+			<Log type="warning" column="StatusCode" message="Web client/server error response: {}" />
+		</When>
+
+		<Log type="detail" column="Endpoint" message="Successfully routed Web request: {}" />
+
+	</Pipeline>
+
+	<Output directory="data/output" format="csv" separator=";" />
+
+</Flow>

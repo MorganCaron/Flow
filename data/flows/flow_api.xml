@@ -1,0 +1,49 @@
+<Flow name="ApiLogPipeline" mapping="api">
+
+	<Input directory="data/input/api"
+		format="csv"
+		separator=","
+		staging="data/staging/api"
+		archive="data/archive/api"
+		quarantine="data/quarantine/api" />
+
+	<Rejected directory="data/rejected/api" separator=";" />
+
+	<Pipeline chunkSize="1000">
+
+		<Let name="GatewayOverheadMs" value="10" type="int" />
+		<Let name="RetryLatencyPenaltyMs" value="150" type="int" />
+
+		<Validate column="StatusCode" operator=">=" value="100" error="API status code must be >= 100" />
+		<Validate column="StatusCode" operator="<=" value="599" error="API status code must be <= 599" />
+
+		<Filter column="Endpoint" operator="!=" value="/metrics" />
+
+		<Transform column="Method" function="toUppercase" />
+		<Transform column="UserId" function="decodeHex" />
+
+		<Operation column="ResponseTimeMs" operator="+=" variable="GatewayOverheadMs" />
+
+		<When column="StatusCode" operator=">=" value="500">
+			<Operation column="ResponseTimeMs" operator="+=" variable="RetryLatencyPenaltyMs" />
+		</When>
+
+		<When column="ResponseTimeMs" operator=">=" value="500">
+			<Log type="warning" column="ResponseTimeMs" message="Elevated API latency: {} ms" />
+		</When>
+
+		<When>
+			<Any>
+				<Condition column="StatusCode" operator=">=" value="500" />
+				<Condition column="ResponseTimeMs" operator=">=" value="2000" />
+			</Any>
+			<Log type="error" message="Critical API anomaly: 5xx server failure or extreme latency" />
+		</When>
+
+		<Log type="detail" column="Endpoint" message="Processed API service call: {}" />
+
+	</Pipeline>
+
+	<Output directory="data/output" format="csv" separator=";" />
+
+</Flow>

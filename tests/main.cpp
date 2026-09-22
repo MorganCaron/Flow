@@ -1,0 +1,25 @@
+import std;
+import CppUtils;
+import Flow.UnitTests;
+
+auto start([[maybe_unused]] std::span<const std::string_view> arguments) -> int
+{
+	try
+	{
+		auto settings = CppUtils::UnitTest::TestSettings{.fastAbort = false};
+		return CppUtils::UnitTest::executeTests(std::move(settings));
+	}
+	catch (const std::exception& exception)
+	{
+		CppUtils::logException<CppUtils::Logger<"UnitTests">>(exception);
+		return CppUtils::exitFailure;
+	}
+	return CppUtils::exitSuccess;
+}
+
+auto main(const int argc, const char* argv[]) -> int
+{
+	CppUtils::System::installCrashHandler();
+	CppUtils::Terminal::setConsoleOutputUTF8();
+	return start(std::vector<std::string_view>{argv, argv + argc});
+}

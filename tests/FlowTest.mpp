@@ -1,0 +1,132 @@
+export module Flow.UnitTests;
+
+import std;
+import CppUtils;
+import Flow.Model.UserRequestLog;
+
+export namespace Flow::UnitTests
+{
+	auto _ = CppUtils::UnitTest::TestSuite{"Flow", [](auto& suite) {
+		using namespace std::literals;
+
+		suite.addTest("WebLogMapping CSV parsing", [&] {
+			const auto line = "192.168.1.10;2026-09-04T10:00:01Z;get;/api/v1/products;200;1024;Mozilla/5.0;35;usr_1001";
+			const auto parsed = CppUtils::Language::CSV::splitLine(line, ";");
+			const auto result = CppUtils::Language::CSV::toStructSafe<Flow::Model::UserRequestLog, Flow::Mapping::WebLogMapping>(parsed, ";");
+
+			suite.expectEqual(result.has_value(), true);
+			const auto& log = result.value();
+			suite.expectEqual(log.timestamp, "2026-09-04T10:00:01Z"sv);
+			suite.expectEqual(log.userId, "usr_1001"sv);
+			suite.expectEqual(log.method, "get"sv);
+			suite.expectEqual(log.endpoint, "/api/v1/products"sv);
+			suite.expectEqual(log.statusCode, 200uz);
+			suite.expectEqual(log.responseTimeMs, 35uz);
+		});
+
+		suite.addTest("ApiLogMapping CSV parsing", [&] {
+			const auto line = "trace-001,usr_2001,get,/service/auth/verify,18ms,200,2026/09/04 10:05:01";
+			const auto parsed = CppUtils::Language::CSV::splitLine(line, ",");
+			const auto result = CppUtils::Language::CSV::toStructSafe<Flow::Model::UserRequestLog, Flow::Mapping::ApiLogMapping>(parsed, ",");
+
+			suite.expectEqual(result.has_value(), true);
+			const auto& log = result.value();
+			suite.expectEqual(log.timestamp, "2026-09-04T10:05:01Z"sv);
+			suite.expectEqual(log.userId, "usr_2001"sv);
+			suite.expectEqual(log.method, "get"sv);
+			suite.expectEqual(log.endpoint, "/service/auth/verify"sv);
+			suite.expectEqual(log.statusCode, 200uz);
+			suite.expectEqual(log.responseTimeMs, 18uz);
+		});
+
+		suite.addTest("ApiLogMapping duration parsing", [&] {
+			const auto line = "trace-002,usr_2002,POST,/service/payments,0.320s,200,2026/09/04 10:05:02";
+			const auto parsed = CppUtils::Language::CSV::splitLine(line, ",");
+			const auto result = CppUtils::Language::CSV::toStructSafe<Flow::Model::UserRequestLog, Flow::Mapping::ApiLogMapping>(parsed, ",");
+
+			suite.expectEqual(result.has_value(), true);
+			suite.expectEqual(result.value().responseTimeMs, 320uz);
+		});
+
+		suite.addTest("StandardLogMapping CSV generation", [&] {
+			const auto log = Flow::Model::UserRequestLog{
+				.timestamp = "2026-09-04T10:00:01Z",
+				.userId = "usr_1001",
+				.method = "GET",
+				.endpoint = "/api/v1/products",
+				.statusCode = 200,
+				.responseTimeMs = 35};
+
+			const auto csv = CppUtils::Language::CSV::toCSV<Flow::Model::UserRequestLog, Flow::Mapping::StandardLogMapping>(log, ";");
+			suite.expectEqual(csv, "2026-09-04T10:00:01Z;usr_1001;GET;/api/v1/products;200;35"sv);
+		});
+
+		suite.addTest("XML pipeline transform and validation", [&] {
+			const auto xmlPipeline = R"(
+				<Pipeline>
+					<Validate column="StatusCode" operator=">=" value="100" error="Status code >= 100" />
+					<Validate column="StatusCode" operator="<=" value="599" error="Status code <= 599" />
+					<Transform column="Method" function="toUppercase" />
+				</Pipeline>
+			)"sv;
+
+			auto pipeline = CppUtils::Language::Xml::buildPipeline<Flow::Model::UserRequestLog, Flow::Mapping::StandardLogMapping>(xmlPipeline);
+			auto logs = std::vector<Flow::Model::UserRequestLog>{
+				Flow::Model::UserRequestLog{"2026-09-04T10:00:00Z", "usr_1", "get", "/test", 200, 50},
+				Flow::Model::UserRequestLog{"2026-09-04T10:00:01Z", "usr_2", "post", "/test", 999, 10}};
+
+			auto processed = logs | pipeline | std::ranges::to<std::vector<Flow::Model::UserRequestLog>>();
+			suite.expectEqual(std::ranges::size(processed), 1uz);
+			suite.expectEqual(processed[0].method, "GET"sv);
+			suite.expectEqual(processed[0].userId, "usr_1"sv);
+		});
+
+		suite.addTest("Hex decoding", [&] {
+			suite.expectEqual(Flow::Crypto::decodeHex("hex:7573725f31303031"), "usr_1001"sv);
+			suite.expectEqual(Flow::Crypto::decodeHex("plain_user"), "plain_user"sv);
+		});
+
+		suite.addTest("UserRequestLog std::format", [&] {
+			const auto log = Flow::Model::UserRequestLog{
+				.timestamp = "2026-09-04T10:00:00Z",
+				.userId = "usr_42",
+				.method = "POST",
+				.endpoint = "/orders",
+				.statusCode = 201,
+				.responseTimeMs = 150};
+			const auto formatted = std::format("{}", log);
+			suite.expectEqual(formatted, "[POST] /orders (status: 201, latency: 150ms, user: usr_42)"sv);
+		});
+
+		suite.addTest("Flow configs discovery", [&] {
+			auto threadPool = CppUtils::Thread::ThreadPool{2};
+			auto runner = CppUtils::Language::Xml::FlowRunner{threadPool, "data/flows"};
+			auto configs = runner.discoverFlowConfigs();
+			suite.expectEqual(std::ranges::size(configs) >= 2uz, true);
+		});
+
+		suite.addTest("Operation tag with Let variable", [&] {
+			const auto xmlPipeline = R"(
+				<Pipeline>
+					<Let name="LatencyOverhead" value="25" type="int" />
+					<Operation column="ResponseTimeMs" operator="+=" variable="LatencyOverhead" />
+					<When column="StatusCode" operator=">=" value="400">
+						<Operation column="Endpoint" operator="=" value="/error" />
+					</When>
+				</Pipeline>
+			)"sv;
+
+			auto pipeline = CppUtils::Language::Xml::buildPipeline<Flow::Model::UserRequestLog, Flow::Mapping::StandardLogMapping>(xmlPipeline);
+			auto logs = std::vector<Flow::Model::UserRequestLog>{
+				Flow::Model::UserRequestLog{"2026-09-04T10:00:00Z", "usr_1", "GET", "/api/data", 200, 50},
+				Flow::Model::UserRequestLog{"2026-09-04T10:00:01Z", "usr_2", "POST", "/api/submit", 500, 100}};
+
+			auto processed = logs | pipeline | std::ranges::to<std::vector<Flow::Model::UserRequestLog>>();
+			suite.expectEqual(std::ranges::size(processed), 2uz);
+			suite.expectEqual(processed[0].responseTimeMs, 75uz);
+			suite.expectEqual(processed[0].endpoint, "/api/data"sv);
+			suite.expectEqual(processed[1].responseTimeMs, 125uz);
+			suite.expectEqual(processed[1].endpoint, "/error"sv);
+		});
+	}};
+}

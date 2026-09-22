@@ -1,0 +1,265 @@
+module;
+
+#include <cstdio>
+#include <ctime>
+
+export module Flow.UI.FlowTerminalUI;
+
+import std;
+import CppUtils;
+
+export namespace Flow::UI
+{
+	enum class LogLevel : std::uint8_t
+	{
+		Detail = 0,
+		Debug = 1,
+		Info = 2,
+		Warning = 3,
+		Error = 4,
+		Off = 5
+	};
+
+	using LogLevelMapping = CppUtils::Type::Mapping<
+		CppUtils::Type::Pair<LogLevel::Detail, CppUtils::String::Hasher{"detail"}>,
+		CppUtils::Type::Pair<LogLevel::Debug, CppUtils::String::Hasher{"debug"}>,
+		CppUtils::Type::Pair<LogLevel::Info, CppUtils::String::Hasher{"info"}>,
+		CppUtils::Type::Pair<LogLevel::Warning, CppUtils::String::Hasher{"warning"}>,
+		CppUtils::Type::Pair<LogLevel::Error, CppUtils::String::Hasher{"error"}>,
+		CppUtils::Type::Pair<LogLevel::Off, CppUtils::String::Hasher{"off"}>>;
+}
+
+export template<>
+struct std::formatter<Flow::UI::LogLevel>: std::formatter<std::string_view>
+{
+	auto format(Flow::UI::LogLevel level, std::format_context& context) const
+	{
+		using namespace std::literals;
+		return std::formatter<std::string_view>::format(
+			Flow::UI::LogLevelMapping::toRhs(level, "info"sv), context);
+	}
+};
+
+namespace
+{
+	std::atomic<Flow::UI::LogLevel> currentLogLevel{Flow::UI::LogLevel::Info};
+}
+
+export namespace Flow::UI
+{
+	auto setLogLevel(LogLevel level) noexcept -> void
+	{
+		currentLogLevel.store(level, std::memory_order_relaxed);
+	}
+
+	auto getLogLevel() noexcept -> LogLevel
+	{
+		return currentLogLevel.load(std::memory_order_relaxed);
+	}
+
+	[[nodiscard]] inline auto getFormattedTimestamp() -> std::string
+	{
+		const auto now = std::chrono::system_clock::now();
+		const auto time = std::chrono::system_clock::to_time_t(now);
+		auto localTime = std::tm{};
+#if defined(_WIN32)
+		localtime_s(std::addressof(localTime), std::addressof(time));
+#else
+		localtime_r(std::addressof(time), std::addressof(localTime));
+#endif
+		return std::format("{:02d}:{:02d}:{:02d}", localTime.tm_hour, localTime.tm_min, localTime.tm_sec);
+	}
+
+	[[nodiscard]] inline auto getFormattedDateTime() -> std::string
+	{
+		const auto now = std::chrono::system_clock::now();
+		const auto time = std::chrono::system_clock::to_time_t(now);
+		auto localTime = std::tm{};
+#if defined(_WIN32)
+		localtime_s(std::addressof(localTime), std::addressof(time));
+#else
+		localtime_r(std::addressof(time), std::addressof(localTime));
+#endif
+		return std::format("{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}",
+			localTime.tm_year + 1900,
+			localTime.tm_mon + 1,
+			localTime.tm_mday,
+			localTime.tm_hour,
+			localTime.tm_min,
+			localTime.tm_sec);
+	}
+
+	inline auto initTerminalUI() -> void
+	{
+		static bool initialized = false;
+		if (initialized)
+			return;
+		initialized = true;
+
+		auto& eventQueue = CppUtils::Logger<"Flow">::eventQueue();
+
+		eventQueue.template subscribe<"detail">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Detail)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Blue};
+				std::print("🔍 [{}] [DETAIL] ", timestamp);
+			}
+			std::println("{}", message);
+		});
+
+		eventQueue.template subscribe<"debug">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Debug)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Magenta};
+				std::print("🛠 [{}] [DEBUG]  ", timestamp);
+			}
+			std::println("{}", message);
+		});
+
+		eventQueue.template subscribe<"info">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Info)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Cyan};
+				std::print("🛈 [{}] ", timestamp);
+			}
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Blue};
+				std::print("[Flow] ");
+			}
+			std::println("{}", message);
+		});
+
+		eventQueue.template subscribe<"success">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Info)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Green, CppUtils::Terminal::BackgroundColor::BackgroundColorEnum::Default, CppUtils::Terminal::TextStyle::TextStyleEnum::Bolder};
+				std::print("✔ [{}] [SUCCESS] ", timestamp);
+			}
+			std::println("{}", message);
+		});
+
+		eventQueue.template subscribe<"warning">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Warning)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Yellow, CppUtils::Terminal::BackgroundColor::BackgroundColorEnum::Default, CppUtils::Terminal::TextStyle::TextStyleEnum::Bolder};
+				std::print("▲ [{}] [WARN]    ", timestamp);
+			}
+			std::println("{}", message);
+		});
+
+		eventQueue.template subscribe<"error">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Error)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Red, CppUtils::Terminal::BackgroundColor::BackgroundColorEnum::Default, CppUtils::Terminal::TextStyle::TextStyleEnum::Bolder};
+				std::print("✖ [{}] [ERROR]   ", timestamp);
+			}
+			std::println("{}", message);
+		});
+
+		eventQueue.template subscribe<"metric">([](const std::string& message) {
+			if (getLogLevel() > LogLevel::Info)
+				return;
+			const auto timestamp = getFormattedTimestamp();
+			{
+				auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Yellow};
+				std::print("📊 [{}] [METRIC]  ", timestamp);
+			}
+			std::println("{}", message);
+		});
+	}
+
+	inline auto printBanner() -> void
+	{
+		using namespace std::literals;
+		if (getLogLevel() >= LogLevel::Off)
+			return;
+
+		const auto terminalWidth = std::clamp(CppUtils::Terminal::getTerminalSize().width(), 60uz, 100uz);
+		const auto innerWidth = terminalWidth - 2;
+
+		{
+			auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Cyan};
+			std::println("╭{:-^{}}╮", "", innerWidth);
+		}
+
+		{
+			auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Cyan, CppUtils::Terminal::BackgroundColor::BackgroundColorEnum::Default, CppUtils::Terminal::TextStyle::TextStyleEnum::Bolder};
+			std::println("│{:^{}}│", "Flow", innerWidth);
+		}
+
+		{
+			auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Cyan};
+			std::println("╰{:-^{}}╯", "", innerWidth);
+		}
+	}
+
+	inline auto printSummaryCard(
+		const CppUtils::Language::Xml::FlowRunner::Stats& stats,
+		std::optional<std::size_t> flowsCount = std::nullopt) -> void
+	{
+		using namespace std::literals;
+		if (getLogLevel() >= LogLevel::Off)
+			return;
+
+		constexpr auto title = "✔ FLOW PIPELINE EXECUTION SUMMARY"sv;
+		constexpr auto titleWidth = CppUtils::String::getDisplayWidth(title);
+
+		constexpr auto minimumTitleMargin = 8uz;
+		constexpr auto framePaddingWidth = 4uz;
+		constexpr auto minimumCardWidth = titleWidth + minimumTitleMargin + framePaddingWidth;
+
+		auto rows = std::vector<std::string>{};
+		if (flowsCount.has_value())
+			rows.push_back(std::format("  📂 Active Flow Workflows: {}", flowsCount.value()));
+
+		rows.push_back(std::format("  📄 Input Files Processed: {}", stats.processedFilesCount));
+
+		const auto elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(stats.elapsedDuration);
+		rows.push_back(std::format("  ⏱️ Total Elapsed Duration: {} ms", elapsedMilliseconds.count()));
+
+		const auto maxContentWidth = std::ranges::max(rows | std::views::transform([](const auto& row) {
+			return CppUtils::String::getDisplayWidth(row);
+		}));
+
+		const auto terminalWidth = CppUtils::Terminal::getTerminalSize().width();
+		const auto desiredWidth = std::max(minimumCardWidth, maxContentWidth + framePaddingWidth);
+		const auto cardWidth = std::min(desiredWidth, terminalWidth);
+		const auto innerWidth = cardWidth > 2uz ? cardWidth - 2uz : 0uz;
+
+		std::println("");
+		{
+			auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Green};
+			std::println("┌{:-^{}}┐", "", innerWidth);
+			const auto totalPadding = (innerWidth > titleWidth) ? innerWidth - titleWidth : 0uz;
+			const auto leftPadding = totalPadding / 2;
+			const auto rightPadding = totalPadding - leftPadding;
+			std::println("│{:>{}}{}{:>{}}│", "", leftPadding, title, "", rightPadding);
+			std::println("├{:-^{}}┤", "", innerWidth);
+		}
+
+		for (const auto& row : rows)
+		{
+			const auto contentWidth = CppUtils::String::getDisplayWidth(row);
+			const auto padding = (innerWidth > contentWidth) ? innerWidth - contentWidth : 0uz;
+			std::println("│{}{:>{}}│", row, "", padding);
+		}
+
+		{
+			auto _ = CppUtils::Terminal::TextModifier{stdout, CppUtils::Terminal::TextColor::TextColorEnum::Green};
+			std::println("└{:-^{}}┘", "", innerWidth);
+		}
+		std::println("");
+	}
+}

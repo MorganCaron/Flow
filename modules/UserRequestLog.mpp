@@ -1,0 +1,177 @@
+export module Flow.Model.UserRequestLog;
+
+import std;
+import CppUtils;
+
+export namespace Flow::Crypto
+{
+	[[nodiscard]] inline auto decodeHex(std::string_view input) -> std::string
+	{
+		if (input.starts_with("hex:") or input.starts_with("0x"))
+		{
+			const auto raw = input.starts_with("hex:") ? input.substr(4) : input.substr(2);
+			const auto bytes = CppUtils::String::fromHexString(raw);
+			return std::string{reinterpret_cast<const char*>(std::ranges::data(bytes)), std::ranges::size(bytes)};
+		}
+		return std::string{input};
+	}
+}
+
+export namespace Flow::Model
+{
+	struct UserRequestLog final
+	{
+		std::string timestamp;
+		std::string userId;
+		std::string method;
+		std::string endpoint;
+		std::size_t statusCode = 0;
+		std::size_t responseTimeMs = 0;
+
+		[[nodiscard]] constexpr auto isSuccess() const noexcept -> bool
+		{
+			return statusCode >= 200 and statusCode < 400;
+		}
+
+		[[nodiscard]] constexpr auto isClientError() const noexcept -> bool
+		{
+			return statusCode >= 400 and statusCode < 500;
+		}
+
+		[[nodiscard]] constexpr auto isServerError() const noexcept -> bool
+		{
+			return statusCode >= 500 and statusCode < 600;
+		}
+
+		[[nodiscard]] constexpr auto isSlow() const noexcept -> bool
+		{
+			return responseTimeMs >= 1'000uz;
+		}
+
+		auto operator==(const UserRequestLog&) const -> bool = default;
+	};
+}
+
+export namespace Flow::Mapping
+{
+	using namespace CppUtils::String::Literals;
+	using namespace CppUtils::Language::CSV::Literals;
+
+	inline auto parseDuration(std::size_t& member, std::string_view value) -> void
+	{
+		auto trimmed = CppUtils::String::trimString(value);
+		auto multiplier = 1.0;
+		if (trimmed.ends_with("ms"))
+			trimmed.remove_suffix(2);
+		else if (trimmed.ends_with("s"))
+		{
+			trimmed.remove_suffix(1);
+			multiplier = 1000.0;
+		}
+
+		auto duration = 0.0;
+		const auto [ptr, ec] = std::from_chars(std::ranges::data(trimmed), std::ranges::data(trimmed) + std::ranges::size(trimmed), duration);
+		if (ec != std::errc{} or ptr != std::ranges::data(trimmed) + std::ranges::size(trimmed) or duration < 0.0)
+			throw std::runtime_error{std::format("Invalid duration format '{}'", value)};
+		member = static_cast<std::size_t>(std::round(duration * multiplier));
+	}
+
+	inline auto parseTimestamp(std::string& member, std::string_view value) -> void
+	{
+		auto trimmed = CppUtils::String::trimString(value);
+		if (trimmed.contains('/'))
+		{
+			auto normalizedTimestamp = std::string{trimmed};
+			std::ranges::replace(normalizedTimestamp, '/', '-');
+			if (const auto spacePosition = normalizedTimestamp.find(' '); spacePosition != std::string::npos)
+				normalizedTimestamp[spacePosition] = 'T';
+			if (not normalizedTimestamp.ends_with('Z'))
+				normalizedTimestamp.push_back('Z');
+			member = std::move(normalizedTimestamp);
+		}
+		else
+			member = std::string{trimmed};
+	}
+
+	using UserRequestLogMapping = CppUtils::Type::Mapping<
+		CppUtils::Type::Pair<"Timestamp"_token, &Model::UserRequestLog::timestamp>,
+		CppUtils::Type::Pair<"UserId"_token, &Model::UserRequestLog::userId>,
+		CppUtils::Type::Pair<"Method"_token, &Model::UserRequestLog::method>,
+		CppUtils::Type::Pair<"Endpoint"_token, &Model::UserRequestLog::endpoint>,
+		CppUtils::Type::Pair<"StatusCode"_token, &Model::UserRequestLog::statusCode>,
+		CppUtils::Type::Pair<"ResponseTimeMs"_token, &Model::UserRequestLog::responseTimeMs>>;
+
+	using CommonFunctionMapping = CppUtils::Type::Mapping<
+		CppUtils::Type::Pair<"toUppercase"_token, &CppUtils::String::toUppercase<std::string_view>>,
+		CppUtils::Type::Pair<"decodeHex"_token, &Crypto::decodeHex>,
+		CppUtils::Type::Pair<"IsSuccess"_token, &Model::UserRequestLog::isSuccess>,
+		CppUtils::Type::Pair<"IsClientError"_token, &Model::UserRequestLog::isClientError>,
+		CppUtils::Type::Pair<"IsServerError"_token, &Model::UserRequestLog::isServerError>,
+		CppUtils::Type::Pair<"IsSlow"_token, &Model::UserRequestLog::isSlow>>;
+
+	struct StandardLogMapping final
+	{
+		using CSVMapping = CppUtils::Type::Mapping<
+			CppUtils::Type::Pair<"Timestamp"_token, "A"_excelColumn>,
+			CppUtils::Type::Pair<"UserId"_token, "B"_excelColumn>,
+			CppUtils::Type::Pair<"Method"_token, "C"_excelColumn>,
+			CppUtils::Type::Pair<"Endpoint"_token, "D"_excelColumn>,
+			CppUtils::Type::Pair<"StatusCode"_token, "E"_excelColumn>,
+			CppUtils::Type::Pair<"ResponseTimeMs"_token, "F"_excelColumn>>;
+
+		using StructMapping = UserRequestLogMapping;
+		using FunctionMapping = CommonFunctionMapping;
+	};
+
+	struct WebLogMapping final
+	{
+		using CSVMapping = CppUtils::Type::Mapping<
+			CppUtils::Type::Pair<"Timestamp"_token, "B"_excelColumn>,
+			CppUtils::Type::Pair<"Method"_token, "C"_excelColumn>,
+			CppUtils::Type::Pair<"Endpoint"_token, "D"_excelColumn>,
+			CppUtils::Type::Pair<"StatusCode"_token, "E"_excelColumn>,
+			CppUtils::Type::Pair<"ResponseTimeMs"_token, "H"_excelColumn>,
+			CppUtils::Type::Pair<"UserId"_token, "I"_excelColumn>>;
+
+		using StructMapping = UserRequestLogMapping;
+		using FunctionMapping = CommonFunctionMapping;
+	};
+
+	struct ApiLogMapping final
+	{
+		using CSVMapping = CppUtils::Type::Mapping<
+			CppUtils::Type::Pair<"UserId"_token, "B"_excelColumn>,
+			CppUtils::Type::Pair<"Method"_token, "C"_excelColumn>,
+			CppUtils::Type::Pair<"Endpoint"_token, "D"_excelColumn>,
+			CppUtils::Type::Pair<"ResponseTimeMs"_token, "E"_excelColumn>,
+			CppUtils::Type::Pair<"StatusCode"_token, "F"_excelColumn>,
+			CppUtils::Type::Pair<"Timestamp"_token, "G"_excelColumn>>;
+
+		using StructMapping = UserRequestLogMapping;
+		using FunctionMapping = CppUtils::Type::Mapping<
+			CppUtils::Type::Pair<"ResponseTimeMs"_token, &parseDuration>,
+			CppUtils::Type::Pair<"Timestamp"_token, &parseTimestamp>,
+			CppUtils::Type::Pair<"toUppercase"_token, &CppUtils::String::toUppercase<std::string_view>>,
+			CppUtils::Type::Pair<"decodeHex"_token, &Crypto::decodeHex>,
+			CppUtils::Type::Pair<"IsSuccess"_token, &Model::UserRequestLog::isSuccess>,
+			CppUtils::Type::Pair<"IsClientError"_token, &Model::UserRequestLog::isClientError>,
+			CppUtils::Type::Pair<"IsServerError"_token, &Model::UserRequestLog::isServerError>,
+			CppUtils::Type::Pair<"IsSlow"_token, &Model::UserRequestLog::isSlow>>;
+	};
+}
+
+export template<>
+struct std::formatter<Flow::Model::UserRequestLog>: std::formatter<std::string>
+{
+	auto format(const Flow::Model::UserRequestLog& log, std::format_context& context) const
+	{
+		return std::formatter<std::string>::format(
+			std::format("[{}] {} (status: {}, latency: {}ms, user: {})",
+				log.method,
+				log.endpoint,
+				log.statusCode,
+				log.responseTimeMs,
+				log.userId),
+			context);
+	}
+};

@@ -1,0 +1,15 @@
+# Artifacts
+/build
+/.xmake
+
+# Runtime data
+/data/archive
+/data/input
+/data/output
+/data/quarantine
+/data/rejected
+/data/staging
+/logs
+
+# IDE
+/.vscode/compile_commands.json
